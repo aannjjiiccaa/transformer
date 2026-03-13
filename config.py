@@ -30,7 +30,7 @@ def get_config():
         "target_language": "tgt",
         "model_folder": "weights",
         "model_basename": "quote_gen",
-        "preload": None,
+        "preload": "09",
         "tokenizer_file": "tokenizer_{0}.json",
         "experiment_name": "runs/quotes",
         "seed": 561
