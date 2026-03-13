@@ -194,6 +194,17 @@ def causal_mask(size: int) -> torch.Tensor:
     mask = torch.triu(torch.ones(1, size, size), diagonal = 1).type(torch.int)
     return mask == 0
 
+def get_first_tag(cat):
+    if isinstance(cat, list) and len(cat) > 0:
+        return cat[0]
+    if isinstance(cat, str):
+        try:
+            import ast
+            tags = ast.literal_eval(cat)
+            return tags[0] if tags else "general"
+        except:
+            return cat
+    return "general"
 
 def load_data_quotes(csv_file: str, src_lang: str, tgt_lang: str, config: dict, sample_size=None):
     """
@@ -212,28 +223,28 @@ def load_data_quotes(csv_file: str, src_lang: str, tgt_lang: str, config: dict, 
     """
     df = pd.read_csv(csv_file)
     df = df.dropna(subset=['quote', 'author','category'])
+    min_words = 5
+    max_words = config['context_size'] - 10
+    df['quote_len']=df['quote'].str.split().str.len()
+    df = df[(df['quote_len'] >= min_words) & (df['quote_len'] <= max_words)]
+    df = df.drop_duplicates(subset=['quote'])
 
-    if sample_size:
-        df = df.sample(n=sample_size, random_state=42).reset_index(drop=True)
+    if sample_size and len(df) > sample_size:
+        df = df.sample(n=sample_size, random_state=config.get('seed', 42)).reset_index(drop=True)
+    else:
+        df = df.reset_index(drop=True)   
 
-    df['prompt'] = "Generate a "+df['category'].astype(str)+" quote:"
-    formatted_data=[
+    df['category'] = df['category'].apply(get_first_tag)
+    df['prompt'] = "Generate a " + df['category'].astype(str) + " quote:"
+    
+    formatted_data = [
         {
-            "id":str(i),
+            "id": str(i),
             "translation": {src_lang: row['prompt'], tgt_lang: row['quote']}
         }
         for i, row in df.iterrows()
     ]
-
     dataset = HFDataset.from_list(formatted_data)
-
-    def filter_long_quotes(example):
-        p_len = len(example['translation'][src_lang].split())
-        t_len = len(example['translation'][tgt_lang].split())
-        return (p_len+5<config['context_size']) and (t_len+5<config['context_size'])
-
-    dataset = dataset.filter(filter_long_quotes)
-    print(f"Loaded {len(dataset)} quotes.")
     return dataset
 
 

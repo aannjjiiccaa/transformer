@@ -126,7 +126,7 @@ def get_dataset(config):
         src_lang=config['source_language'],
         tgt_lang=config['target_language'],
         config=config,
-        sample_size=config.get('sample_size', 30000)
+        sample_size=config.get('sample_size', 100000)
     )
 
     # Initialize the training, validation and test dataset sizes.
