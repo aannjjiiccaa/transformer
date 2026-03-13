@@ -122,11 +122,11 @@ def get_dataset(config):
     """
     # Load the data from the csv file.
     dataset_raw = load_data_quotes(
-        csv_file="data/quotes.csv",
+        csv_file="/kaggle/input/datasets/manann/quotes-500k/quotes.csv",
         src_lang=config['source_language'],
         tgt_lang=config['target_language'],
         config=config,
-        sample_size=config.get('sample_size', 1000)
+        sample_size=config.get('sample_size', 30000)
     )
 
     # Initialize the training, validation and test dataset sizes.
