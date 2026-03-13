@@ -128,39 +128,27 @@ def get_dataset(config):
         config=config,
         sample_size=config.get('sample_size', 100000)
     )
-
-    # Initialize the training, validation and test dataset sizes.
+    source_tokenizer = get_or_build_tokenizer(config, dataset_raw, config['source_language'])
+    target_tokenizer = get_or_build_tokenizer(config, dataset_raw, config['target_language'])
+    def filter_by_tokens(example):
+        src_ids = source_tokenizer.encode(example['translation'][config['source_language']]).ids
+        tgt_ids = target_tokenizer.encode(example['translation'][config['target_language']]).ids
+        
+        return len(src_ids) <= config['context_size'] - 2 and len(tgt_ids) <= config['context_size'] - 2
+    dataset_raw = dataset_raw.filter(filter_by_tokens)
     dataset_size = len(dataset_raw)
-    train_dataset_size = int(0.9 * dataset_size)
-    validation_dataset_size = int(0.09 * dataset_size)
-    test_dataset_size = dataset_size - train_dataset_size - validation_dataset_size
+    train_size = int(0.9 * dataset_size)
+    val_size = int(0.09 * dataset_size)
+    test_size = dataset_size - train_size - val_size
+    
     train_raw, val_raw, test_raw = random_split(
-        dataset_raw, [train_dataset_size, validation_dataset_size, test_dataset_size],
+        dataset_raw, [train_size, val_size, test_size],
         generator=torch.Generator().manual_seed(config['seed'])
     )
-    # Split the data into datasets.
-  #  training_dataset_raw, validation_dataset_raw, test_dataset_raw = random_split(dataset_raw, [train_dataset_size, validation_dataset_size, test_dataset_size])
-
-    source_tokenizer = get_or_build_tokenizer(config, train_raw, config['source_language'])
-    target_tokenizer = get_or_build_tokenizer(config, train_raw, config['target_language'])
-
-    # Define the BilingualDataset objects for the training and validation datasets.
     training_dataset = BilingualDataset(train_raw, source_tokenizer, target_tokenizer, config['source_language'], config['target_language'], config['context_size'])
     validation_dataset = BilingualDataset(val_raw, source_tokenizer, target_tokenizer, config['source_language'], config['target_language'], config['context_size'])
     test_dataset = BilingualDataset(test_raw, source_tokenizer, target_tokenizer, config['source_language'], config['target_language'], config['context_size'])
 
-    # Calculate the maximum lengths of the sentences in training dataset.
-    # Only for testing purposes.
-    # max_len_source = 0
-    # max_len_target = 0
-    # for item in dataset_raw:
-    #     source_ids = source_tokenizer.encode(item['translation'][config['source_language']]).ids
-    #     target_ids = target_tokenizer.encode(item['translation'][config['target_language']]).ids
-    #     max_len_source = max(max_len_source, len(source_ids))
-    #     max_len_target = max(max_len_target, len(target_ids))
-
-    # print(f"Max length of source sentence: {max_len_source}")
-    # print(f"Max length of target sentence: {max_len_target}")
 
     # Define the DataLoader objects for training and validation datasets.
     training_dataloader = DataLoader(training_dataset, batch_size = config['batch_size'], shuffle = True, pin_memory=True)

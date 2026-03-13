@@ -208,35 +208,41 @@ def get_first_tag(cat):
 
 def load_data_quotes(csv_file: str, src_lang: str, tgt_lang: str, config: dict, sample_size=None):
     """
-    Load quotes dataset from CSV and prepare it for the transformer.
-    Optionally filter out quotes longer than context_size and sample a subset
-
-    Args:
-        csv_file (str): csv file path with columns ['quote','author','tags']
-        src_lang (str): source column, HuggingFace dataset format
-        tgt_lang (str): target column, HuggingFace dataset format
-        sample_size (int | None): how many rows
-        config (dict): Config dict with 'context_size' and optionally tokenizers.
-
-    Returns:
-        HFDataset: HuggingFace dataset with filtered and formatted quotes.
+    Učitava citate, čisti bazu i priprema prompte, 
+    ali ostavlja precizno filtriranje za kasnije (kad imamo tokenizer).
     """
     df = pd.read_csv(csv_file)
-    df = df.dropna(subset=['quote', 'author','category'])
-    min_words = 5
-    max_words = config['context_size'] - 10
-    df['quote_len']=df['quote'].str.split().str.len()
-    df = df[(df['quote_len'] >= min_words) & (df['quote_len'] <= max_words)]
-    df = df.drop_duplicates(subset=['quote'])
-
-    if sample_size and len(df) > sample_size:
-        df = df.sample(n=sample_size, random_state=config.get('seed', 42)).reset_index(drop=True)
-    else:
-        df = df.reset_index(drop=True)   
+    
+    # 1. Osnovno čišćenje (uklanjanje praznih polja)
+    df = df.dropna(subset=['quote', 'author', 'category'])
+    
+    # 2. Sređivanje kategorija (uzimamo samo prvi tag)
+    def get_first_tag(cat):
+        try:
+            import ast
+            # Ako je string u formatu "['love', 'life']", pretvori u listu
+            tags = ast.literal_eval(cat) if isinstance(cat, str) and cat.startswith('[') else cat
+            if isinstance(tags, list) and len(tags) > 0:
+                return str(tags[0])
+            return str(tags)
+        except:
+            return str(cat)
 
     df['category'] = df['category'].apply(get_first_tag)
-    df['prompt'] = "Generate a " + df['category'].astype(str) + " quote:"
     
+    # 3. Uklanjanje duplikata da model ne uči napamet
+    df = df.drop_duplicates(subset=['quote'])
+
+    # 4. Sampling (uzimamo više jer ćemo posle filtrirati)
+    if sample_size and len(df) > sample_size:
+        # Uzmi 20% više od sample_size jer će filtriranje tokena izbaciti neke redove
+        oversample = int(sample_size * 1.2)
+        df = df.sample(n=min(oversample, len(df)), random_state=config.get('seed', 42))
+
+    # 5. Formiranje prompta
+    df['prompt'] = "Generate a " + df['category'] + " quote:"
+    
+    # Pretvaranje u HuggingFace format
     formatted_data = [
         {
             "id": str(i),
@@ -244,6 +250,7 @@ def load_data_quotes(csv_file: str, src_lang: str, tgt_lang: str, config: dict, 
         }
         for i, row in df.iterrows()
     ]
+
     dataset = HFDataset.from_list(formatted_data)
     return dataset
 
