@@ -7,6 +7,31 @@ from dataset import causal_mask
 from model import get_model
 from config import get_latest_weights
 from tokenizers import Tokenizer
+import nltk
+from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
+from nltk.translate.meteor_score import meteor_score
+
+# NLTK zahteva preuzimanje resursa za METEOR
+nltk.download('wordnet')
+nltk.download('punkt')
+
+def calculate_perplexity(loss):
+    return torch.exp(torch.tensor(loss)).item()
+
+def compute_scores(reference_text, generated_text):
+    # Tokenizacija za NLTK
+    ref_tokens = nltk.word_tokenize(reference_text.lower())
+    gen_tokens = nltk.word_tokenize(generated_text.lower())
+
+    # BLEU Score (koristimo Smoothing jer su citati kratki)
+    smoothie = SmoothingFunction().method1
+    bleu = sentence_bleu([ref_tokens], gen_tokens, smoothing_function=smoothie)
+
+    # METEOR Score
+    # Napomena: METEOR očekuje listu referenci kao stringove ili tokene u novijim verzijama
+    m_score = meteor_score([ref_tokens], gen_tokens)
+
+    return bleu, m_score
 
 def load_model_and_tokenizers(config, device='cpu'):
 
@@ -57,11 +82,83 @@ def run_validation(model, dataloader, loss_function, tokenizer, device, epoch, s
     return avg_loss
 
 
-def run_validation_teacher_forcing(*args, **kwargs):
-    return
+def run_validation_teacher_forcing(model, dataloader, loss_function, device):
+    model.eval()
+    total_loss = 0
+    
+    with torch.no_grad():
+        for batch in dataloader:
+            encoder_input = batch['encoder_input'].to(device) # (B, seq_len)
+            decoder_input = batch['decoder_input'].to(device) # (B, seq_len)
+            encoder_mask = batch['encoder_mask'].to(device)
+            decoder_mask = batch['decoder_mask'].to(device)
+            label = batch['label'].to(device)
 
-def run_validation_visualization(*args, **kwargs):
-    return
+            # Forward pass
+            encoder_output = model.encode(encoder_input, encoder_mask)
+            decoder_output = model.decode(encoder_output, encoder_mask, decoder_input, decoder_mask)
+            proj_output = model.project(decoder_output) # (B, seq_len, vocab_size)
+
+            # Izračunaj loss
+            loss = loss_function(proj_output.view(-1, proj_output.size(-1)), label.view(-1))
+            total_loss += loss.item()
+
+    return total_loss / len(dataloader)
+
+def run_validation_visualization(model, dataloader, src_tokenizer, tgt_tokenizer, device, num_examples=10):
+    model.eval()
+    bleu_scores = []
+    meteor_scores = []
+    
+    with torch.no_grad():
+        for i, batch in enumerate(dataloader):
+            if i == num_examples: break
+            
+            encoder_input = batch['encoder_input'].to(device)
+            encoder_mask = batch['encoder_mask'].to(device)
+            target_text = batch['tgt_text'][0]
+            
+            # Generisanje (Greedy ili Sampling)
+            model_out = greedy_decode(model, encoder_input, encoder_mask, tgt_tokenizer, device)
+            model_text = tgt_tokenizer.decode(model_out.detach().cpu().numpy())
+
+            # Računanje skorova za ovaj primer
+            bleu, meteor = compute_scores(target_text, model_text)
+            bleu_scores.append(bleu)
+            meteor_scores.append(meteor)
+            
+            if i < 3: # Ispiši samo prva 3 primera da ne zatrpaš konzolu
+                print(f"EXPECTED: {target_text}")
+                print(f"GENERATED: {model_text}")
+                print(f"BLEU: {bleu:.4f} | METEOR: {meteor:.4f}\n")
+
+    return sum(bleu_scores)/len(bleu_scores), sum(meteor_scores)/len(meteor_scores)
+
+def greedy_decode(model, source, source_mask, tokenizer_tgt, device, max_len=96):
+    sos_idx = tokenizer_tgt.token_to_id('[SOS]')
+    eos_idx = tokenizer_tgt.token_to_id('[EOS]')
+
+    # Precompute encoder output
+    encoder_output = model.encode(source, source_mask)
+    # Start with SOS token
+    decoder_input = torch.empty(1, 1).fill_(sos_idx).type_as(source).to(device)
+    
+    while True:
+        if decoder_input.size(1) == max_len:
+            break
+        
+        decoder_mask = causal_mask(decoder_input.size(1)).type_as(source_mask).to(device)
+        out = model.decode(encoder_output, source_mask, decoder_input, decoder_mask)
+        
+        # Get next token
+        prob = model.project(out[:, -1])
+        _, next_word = torch.max(prob, dim=1)
+        decoder_input = torch.cat([decoder_input, torch.empty(1, 1).type_as(source).fill_(next_word.item()).to(device)], dim=1)
+
+        if next_word == eos_idx:
+            break
+
+    return decoder_input.squeeze(0)
 
 def run_test(model, test_dataloader, src_tokenizer, tgt_tokenizer, device):
     model.eval()
@@ -162,36 +259,3 @@ def generate_quote(model, source_tokenizer, target_tokenizer, prompt,
         # --- Decode tokens to string ---
         generated_text = target_tokenizer.decode(decoder_ids[1:])  # skip SOS
         return generated_text
-
-# def generate_quote(model, source_tokenizer, target_tokenizer, prompt, max_len=64, device='cpu'):
-#     model.eval()
-#     with torch.no_grad():
-#         # Tokenizuj prompt
-#         input_ids = source_tokenizer.encode(prompt).ids
-#         input_tensor = torch.tensor([source_tokenizer.token_to_id('[SOS]')] + input_ids + [source_tokenizer.token_to_id('[EOS]')], dtype=torch.int64).unsqueeze(0).to(device)
-#         encoder_mask = (input_tensor != source_tokenizer.token_to_id('[PAD]')).unsqueeze(1).unsqueeze(2).int()
-
-#         # Encode
-#         encoder_output = model.encode(input_tensor, encoder_mask)
-
-#         # Start decoder with SOS
-#         decoder_ids = [target_tokenizer.token_to_id('[SOS]')]
-#         for _ in range(max_len):
-#             decoder_input = torch.tensor([decoder_ids], dtype=torch.int64).to(device)
-#             mask = causal_mask(len(decoder_ids)).to(decoder_input.device)
-#             decoder_mask = (decoder_input != target_tokenizer.token_to_id('[PAD]')).unsqueeze(1).int() & mask
-
-#            # decoder_mask = (decoder_input != target_tokenizer.token_to_id('[PAD]')).unsqueeze(1).int() & causal_mask(len(decoder_ids)))
-            
-#             decoder_output = model.decode(encoder_output, encoder_mask, decoder_input, decoder_mask)
-#             logits = model.project(decoder_output)
-#             next_token_id = torch.argmax(logits[0, -1]).item()
-            
-#             if next_token_id == target_tokenizer.token_to_id('[EOS]'):
-#                 break
-#             decoder_ids.append(next_token_id)
-
-#         # Dekoduj u string
-#         generated_text = target_tokenizer.decode(decoder_ids[1:])  # skip SOS
-#         return generated_text
-

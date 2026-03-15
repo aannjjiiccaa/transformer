@@ -5,10 +5,10 @@ from torch.utils.data import DataLoader, random_split
 from torch.utils.tensorboard import SummaryWriter
 
 # Other files stuff
-from dataset import BilingualDataset, load_data_quotes
+from dataset import QuoteDataset, load_data_quotes
 from model import get_model
 from config import get_weights_file_path, get_latest_weights, get_config
-from test import load_model_and_tokenizers, run_validation, run_validation_teacher_forcing, run_validation_visualization, run_test, generate_quote
+from test import calculate_perplexity, load_model_and_tokenizers, run_validation, run_validation_teacher_forcing, run_validation_visualization, run_test, generate_quote
 
 # HuggingFace stuff
 from tokenizers import Tokenizer
@@ -145,9 +145,9 @@ def get_dataset(config):
         dataset_raw, [train_size, val_size, test_size],
         generator=torch.Generator().manual_seed(config['seed'])
     )
-    training_dataset = BilingualDataset(train_raw, source_tokenizer, target_tokenizer, config['source_language'], config['target_language'], config['context_size'])
-    validation_dataset = BilingualDataset(val_raw, source_tokenizer, target_tokenizer, config['source_language'], config['target_language'], config['context_size'])
-    test_dataset = BilingualDataset(test_raw, source_tokenizer, target_tokenizer, config['source_language'], config['target_language'], config['context_size'])
+    training_dataset = QuoteDataset(train_raw, source_tokenizer, target_tokenizer, config['source_language'], config['target_language'], config['context_size'])
+    validation_dataset = QuoteDataset(val_raw, source_tokenizer, target_tokenizer, config['source_language'], config['target_language'], config['context_size'])
+    test_dataset = QuoteDataset(test_raw, source_tokenizer, target_tokenizer, config['source_language'], config['target_language'], config['context_size'])
 
 
     # Define the DataLoader objects for training and validation datasets.
@@ -159,103 +159,77 @@ def get_dataset(config):
 
 
 def train_model(config):
-    """
-    Train the transformer model with the given parameters.
-
-    Args:
-        config: A config file.
-    """
-    # Use cuda if possible, otherwise use cpu.
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f'Using device {device}.')
 
-    # Make the folder for the model weights.
-    Path(config['model_folder']).mkdir(parents = True, exist_ok = True)
+    Path(config['model_folder']).mkdir(parents=True, exist_ok=True)
 
-    # Get the datasets and define the model.
     training_dataloader, validation_dataloader, test_dataloader, source_tokenizer, target_tokenizer = get_dataset(config)
     model = get_model(config, source_tokenizer.get_vocab_size(), target_tokenizer.get_vocab_size()).to(device)
-    print(model)
-    # Initialize the writer to visualize data.
+    
     writer = SummaryWriter(config['experiment_name'])
-
-    # Initialize the Adam optimizer.
-    # Adjusts the learning rate as the model trains.
-    optimizer = torch.optim.Adam(model.parameters(), lr = config['learning_rate'], eps = 1e-9,weight_decay=1e-5)
+    optimizer = torch.optim.Adam(model.parameters(), lr=config['learning_rate'], eps=1e-9, weight_decay=1e-5)
     scaler = torch.GradScaler()
-    # Load a pretrained model if defined and if it exists.
+
+    # Preload 
     initial_epoch = 0
     global_step = 0
-    preload = config['preload']
-    model_filename = get_latest_weights(config) if preload == 'latest' else get_weights_file_path(config, preload) if preload else None
+    if config['preload'] == 'latest':
+        model_filename = get_latest_weights(config)
+        if model_filename:
+            state = torch.load(model_filename)
+            model.load_state_dict(state['model_state_dict'])
+            optimizer.load_state_dict(state['optimizer_state_dict'])
+            initial_epoch = state['epoch'] + 1
+            global_step = state['global_step']
 
-    if model_filename:
-        print(f"Preloading model {model_filename}.")
-        state = torch.load(model_filename)
-        optimizer.load_state_dict(state['optimizer_state_dict'])
-        model.load_state_dict(state['model_state_dict'])
-        initial_epoch = state['epoch'] + 1
-        global_step = state['global_step']
-    else:
-        print("No model to preload, starting from the beginning.")
-
-    # Define the loss function.
-    loss_function = nn.CrossEntropyLoss(ignore_index = target_tokenizer.token_to_id('[PAD]'), label_smoothing = 0.15).to(device)
+    loss_function = nn.CrossEntropyLoss(ignore_index=target_tokenizer.token_to_id('[PAD]'), label_smoothing=0.15).to(device)
     best_loss = float('inf')
-    best_model_path = Path(config['model_folder']) / "best_model.pt"
-    if best_model_path.exists():
-        state = torch.load(best_model_path)
-        best_loss = state.get('val_loss', float('inf'))
 
-    # Run the epochs.
     for epoch in range(initial_epoch, config['num_epochs']):
+        model.train()
+        batch_iterator = tqdm(training_dataloader, desc=f"Epoch {epoch:02d}")
+        epoch_loss = 0
         
-        # Create a batch iterator and iterate through the batches.
-        batch_iterator = tqdm(training_dataloader, desc = f"Processing epoch {epoch:02d}")
         for batch in batch_iterator:
-
-            # Put the model in the training state.
-            model.train()
-
-            # Move the tensors to the device.
             encoder_input = batch['encoder_input'].to(device)
             decoder_input = batch['decoder_input'].to(device)
             encoder_mask = batch['encoder_mask'].to(device)
             decoder_mask = batch['decoder_mask'].to(device)
             label = batch['label'].to(device)
-            with torch.autocast(device_type=device.type, dtype=torch.float16):
-                # Calculate the outputs of the model for this batch.
+
+            with torch.autocast(device_type='cuda', dtype=torch.float16):
                 encoder_output = model.encode(encoder_input, encoder_mask)
                 decoder_output = model.decode(encoder_output, encoder_mask, decoder_input, decoder_mask)
-                transformer_output = model.project(decoder_output)
-                loss = loss_function(transformer_output.view(-1,target_tokenizer.get_vocab_size()),label.view(-1))
+                logits = model.project(decoder_output)
+                loss = loss_function(logits.view(-1, target_tokenizer.get_vocab_size()), label.view(-1))
 
             optimizer.zero_grad()
             scaler.scale(loss).backward()
             scaler.step(optimizer)
             scaler.update()
 
-            batch_iterator.set_postfix({"loss":f"{loss.item():6.3f}"})
-            writer.add_scalar('train_loss',loss.item(),global_step)
-            # Adjust the global step.
+            epoch_loss += loss.item()
             global_step += 1
+            writer.add_scalar('Step/train_loss', loss.item(), global_step)
 
-        # Run the validation at the end of every epoch.
-        run_validation_visualization(model, validation_dataloader, source_tokenizer, target_tokenizer, config['context_size'], device, lambda msg: batch_iterator.write(msg), writer, global_step, number_examples = 1)
-        # run_validation_teacher_forcing(model, validation_dataloader, loss_function, target_tokenizer, device)
-        avg_val_loss=run_validation(model, validation_dataloader, loss_function, target_tokenizer, device, epoch, source_tokenizer)
+        avg_train_loss = epoch_loss / len(training_dataloader)
+        val_loss = run_validation_teacher_forcing(model, validation_dataloader, loss_function, device)
+        val_ppl = calculate_perplexity(val_loss)
+        avg_bleu, avg_meteor = run_validation_visualization(model, validation_dataloader, source_tokenizer, target_tokenizer, device)
 
-        # Save weights at certain 'milestone' epochs.
-        model_filename = get_weights_file_path(config, f'{epoch:02d}')
-        if avg_val_loss < best_loss:
-            best_loss = avg_val_loss
-            torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
-                'global_step': global_step,
-                'val_loss': avg_val_loss
-            }, best_model_path)
+        writer.add_scalar('Loss/train', avg_train_loss, epoch)
+        writer.add_scalar('Loss/val', val_loss, epoch)
+        writer.add_scalar('Metrics/Perplexity', val_ppl, epoch)
+        writer.add_scalar('Metrics/BLEU', avg_bleu, epoch)
+        writer.add_scalar('Metrics/METEOR', avg_meteor, epoch)
+        writer.flush()
+
+        print(f"Epoch {epoch}: Train Loss {avg_train_loss:.4f}, Val Loss {val_loss:.4f}, PPL {val_ppl:.2f}, BLEU {avg_bleu:.4f}")
+
+        if val_loss < best_loss:
+            best_loss = val_loss
+            torch.save({'model_state_dict': model.state_dict(), 'val_loss': val_loss}, Path(config['model_folder'])/"best_model.pt")
 
 if __name__ == "__main__":
     warnings.filterwarnings('ignore')
@@ -275,6 +249,4 @@ if __name__ == "__main__":
     loss_function = nn.CrossEntropyLoss(ignore_index=tgt_tokenizer.token_to_id('[PAD]')).to(device)
     run_validation(model, validation_dataloader, loss_function, tgt_tokenizer, device, "FINAL", src_tokenizer)
     run_test(model, test_dataloader, src_tokenizer, tgt_tokenizer, device)
-    
-    # Vizuelizacija 10-20 primera (50 je možda previše za čitanje odjednom)
-    run_validation_visualization(model, validation_dataloader, src_tokenizer, tgt_tokenizer, config['context_size'], device, print, None, 0, number_examples=10)
+    run_validation_visualization(model, validation_dataloader, src_tokenizer, tgt_tokenizer, device, num_examples=10)
