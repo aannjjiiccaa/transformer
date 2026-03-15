@@ -211,19 +211,20 @@ def train_model(config):
 
             epoch_loss += loss.item()
             global_step += 1
-            writer.add_scalar('Step/train_loss', loss.item(), global_step)
+            writer.add_scalar('Train/Loss_Step', loss.item(), global_step)
 
         avg_train_loss = epoch_loss / len(training_dataloader)
         val_loss = run_validation_teacher_forcing(model, validation_dataloader, loss_function, device)
         val_ppl = calculate_perplexity(val_loss)
         avg_bleu, avg_meteor = run_validation_visualization(model, validation_dataloader, source_tokenizer, target_tokenizer, device)
 
-        writer.add_scalar('Loss/train', avg_train_loss, epoch)
-        writer.add_scalar('Loss/val', val_loss, epoch)
-        writer.add_scalar('Metrics/Perplexity', val_ppl, epoch)
-        writer.add_scalar('Metrics/BLEU', avg_bleu, epoch)
-        writer.add_scalar('Metrics/METEOR', avg_meteor, epoch)
+        writer.add_scalar('Train/Loss', avg_train_loss, epoch)
+        writer.add_scalar('Validation/Loss', val_loss, epoch)
+        writer.add_scalar('Validation/Perplexity', val_ppl, epoch)
+        writer.add_scalar('Validation/BLEU', avg_bleu, epoch)
+        writer.add_scalar('Validation/METEOR', avg_meteor, epoch)
         writer.flush()
+
 
         print(f"Epoch {epoch}: Train Loss {avg_train_loss:.4f}, Val Loss {val_loss:.4f}, PPL {val_ppl:.2f}, BLEU {avg_bleu:.4f}")
 
