@@ -117,9 +117,14 @@ def run_validation_visualization(model, dataloader, src_tokenizer, tgt_tokenizer
             encoder_input = batch['encoder_input'].to(device)
             encoder_mask = batch['encoder_mask'].to(device)
             target_text = batch['tgt_text'][0]
+            single_encoder_input = encoder_input[0:1]
+            single_encoder_mask = encoder_mask[0:1]
             
             # Generisanje (Greedy ili Sampling)
-            model_out = greedy_decode(model, encoder_input, encoder_mask, tgt_tokenizer, device)
+            model_out = greedy_decode(model, single_encoder_input, single_encoder_mask, tgt_tokenizer, device)
+            if len(model_out.shape) > 1:
+                model_out = model_out[0]
+
             model_text = tgt_tokenizer.decode(model_out.detach().cpu().numpy())
 
             # Računanje skorova za ovaj primer
