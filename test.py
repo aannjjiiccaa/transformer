@@ -7,31 +7,25 @@ from dataset import causal_mask
 from model import get_model
 from config import get_latest_weights
 from tokenizers import Tokenizer
-import nltk
-from nltk.translate.bleu_score import sentence_bleu, SmoothingFunction
-from nltk.translate.meteor_score import meteor_score
 
-# NLTK zahteva preuzimanje resursa za METEOR
-nltk.download('wordnet')
-nltk.download('punkt')
+import evaluate
+
+bleu_metric = evaluate.load("bleu")
+meteor_metric = evaluate.load("meteor")
+
 
 def calculate_perplexity(loss):
     return torch.exp(torch.tensor(loss)).item()
 
 def compute_scores(reference_text, generated_text):
-    # Tokenizacija za NLTK
-    ref_tokens = nltk.word_tokenize(reference_text.lower())
-    gen_tokens = nltk.word_tokenize(generated_text.lower())
+    if not generated_text.strip():
+        return 0.0, 0.0
 
-    # BLEU Score (koristimo Smoothing jer su citati kratki)
-    smoothie = SmoothingFunction().method1
-    bleu = sentence_bleu([ref_tokens], gen_tokens, smoothing_function=smoothie)
-
-    # METEOR Score
-    # Napomena: METEOR očekuje listu referenci kao stringove ili tokene u novijim verzijama
-    m_score = meteor_score([ref_tokens], gen_tokens)
-
-    return bleu, m_score
+    predictions = [generated_text]
+    references = [reference_text]
+    bleu_results = bleu_metric.compute(predictions=predictions, references=references)
+    meteor_results = meteor_metric.compute(predictions=predictions, references=references)
+    return bleu_results['bleu'], meteor_results['meteor']
 
 def load_model_and_tokenizers(config, device='cpu'):
 
@@ -55,7 +49,6 @@ def load_model_and_tokenizers(config, device='cpu'):
 
 
 def run_validation(model, dataloader, loss_function, tokenizer, device, epoch, src_tokenizer):
-    # Na kraju epoch
     model.eval()
     with torch.no_grad():
         total_loss = 0
@@ -112,32 +105,38 @@ def run_validation_visualization(model, dataloader, src_tokenizer, tgt_tokenizer
     
     with torch.no_grad():
         for i, batch in enumerate(dataloader):
-            if i == num_examples: break
+            if i >= num_examples: break # Mala ispravka za sigurnost
             
             encoder_input = batch['encoder_input'].to(device)
             encoder_mask = batch['encoder_mask'].to(device)
+            
             target_text = batch['tgt_text'][0]
+            
             single_encoder_input = encoder_input[0:1]
             single_encoder_mask = encoder_mask[0:1]
             
-            # Generisanje (Greedy ili Sampling)
             model_out = greedy_decode(model, single_encoder_input, single_encoder_mask, tgt_tokenizer, device)
+            
             if len(model_out.shape) > 1:
-                model_out = model_out[0]
+                model_out = model_out.squeeze(0)
 
             model_text = tgt_tokenizer.decode(model_out.detach().cpu().numpy())
 
-            # Računanje skorova za ovaj primer
             bleu, meteor = compute_scores(target_text, model_text)
+            
             bleu_scores.append(bleu)
             meteor_scores.append(meteor)
             
-            if i < 3: # Ispiši samo prva 3 primera da ne zatrpaš konzolu
-                print(f"EXPECTED: {target_text}")
+            if i < 3:
+                print(f"--- Example {i+1} ---")
+                print(f"EXPECTED:  {target_text}")
                 print(f"GENERATED: {model_text}")
                 print(f"BLEU: {bleu:.4f} | METEOR: {meteor:.4f}\n")
 
-    return sum(bleu_scores)/len(bleu_scores), sum(meteor_scores)/len(meteor_scores)
+    avg_bleu = sum(bleu_scores) / len(bleu_scores) if bleu_scores else 0.0
+    avg_meteor = sum(meteor_scores) / len(meteor_scores) if meteor_scores else 0.0
+
+    return avg_bleu, avg_meteor
 
 def greedy_decode(model, source, source_mask, tokenizer_tgt, device, max_len=96):
     sos_idx = tokenizer_tgt.token_to_id('[SOS]')

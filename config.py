@@ -22,10 +22,10 @@ def get_config():
     """
     return {
         "batch_size": 128,
-        "num_epochs": 100,
+        "num_epochs": 30,
         "learning_rate": 1 * 10**-4,
         "context_size": 96,
-        "model_dimension": 256,
+        "model_dimension": 512,
         "source_language": "src",
         "target_language": "tgt",
         "model_folder": "weights",
@@ -34,7 +34,7 @@ def get_config():
         "tokenizer_file": "tokenizer_{0}.json",
         "experiment_name": "runs/quotes",
         "seed": 561,
-        "sample_size":1000
+        "sample_size":100000
     }
 
 def get_weights_file_path(

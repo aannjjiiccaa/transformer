@@ -5,7 +5,6 @@ import torch
 from torch.utils.data import Dataset as TorchDataset
 from datasets import Dataset as HFDataset
 from tokenizers import Tokenizer
-from translate.storage.tmx import tmxfile
 
 from typing import Any, Dict
 
