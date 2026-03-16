@@ -21,11 +21,11 @@ def get_config():
             seed: (int | None): seed of the model
     """
     return {
-        "batch_size": 128,
-        "num_epochs": 30,
+        "batch_size": 256,
+        "num_epochs": 20,
         "learning_rate": 1 * 10**-4,
         "context_size": 96,
-        "model_dimension": 512,
+        "model_dimension": 256,
         "source_language": "src",
         "target_language": "tgt",
         "model_folder": "weights",

@@ -205,7 +205,7 @@ def run_test(model, test_dataloader, src_tokenizer, tgt_tokenizer, device):
 
 
 def generate_quote(model, source_tokenizer, target_tokenizer, prompt, 
-                   max_len=64, device='cpu', top_k=50, temperature=1.0):
+                   max_len=64, device='cpu', top_k=50, temperature=0.8):
     """
     Generate a quote from the model using top-k sampling.
 

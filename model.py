@@ -455,7 +455,7 @@ def build_transformer(
         model_dimension: int = 512, 
         number_of_blocks: int = 4, 
         heads: int = 8, 
-        dropout: float = 0.2, 
+        dropout: float = 0.3, 
         feed_forward_dimension: int = 2048
     ) -> Transformer:
     """Build the transformer with the provided parameters.

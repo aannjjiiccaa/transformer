@@ -7,14 +7,14 @@ from torch.utils.tensorboard import SummaryWriter
 # Other files stuff
 from dataset import QuoteDataset, load_data_quotes
 from model import get_model
-from config import get_weights_file_path, get_latest_weights, get_config
-from test import calculate_perplexity, load_model_and_tokenizers, run_validation, run_validation_teacher_forcing, run_validation_visualization, run_test, generate_quote
+from config import get_latest_weights, get_config
+from test import calculate_perplexity, run_validation, run_validation_teacher_forcing, run_validation_visualization, run_test
 
 # HuggingFace stuff
 from tokenizers import Tokenizer
 from tokenizers.models import WordLevel
 from tokenizers.trainers import WordLevelTrainer
-from tokenizers.pre_tokenizers import Whitespace, CharDelimiterSplit, Punctuation
+from tokenizers.pre_tokenizers import CharDelimiterSplit
 from datasets import Dataset as HFDataset
 
 # Metrics stuff
@@ -169,6 +169,7 @@ def train_model(config):
     
     writer = SummaryWriter(config['experiment_name'])
     optimizer = torch.optim.Adam(model.parameters(), lr=config['learning_rate'], eps=1e-9, weight_decay=1e-5)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=2)
     scaler = torch.GradScaler()
 
     # Preload 
@@ -225,9 +226,8 @@ def train_model(config):
         writer.add_scalar('Validation/METEOR', avg_meteor, epoch)
         writer.flush()
 
-
         print(f"Epoch {epoch}: Train Loss {avg_train_loss:.4f}, Val Loss {val_loss:.4f}, PPL {val_ppl:.2f}, BLEU {avg_bleu:.4f}")
-
+        scheduler.step(val_loss)
         if val_loss < best_loss:
             best_loss = val_loss
             torch.save({'model_state_dict': model.state_dict(), 'val_loss': val_loss}, Path(config['model_folder'])/"best_model.pt")

@@ -1,4 +1,3 @@
-from pathlib import Path
 import pandas as pd
 import torch
 
@@ -92,7 +91,7 @@ def load_data_quotes(csv_file: str, src_lang: str, tgt_lang: str, config: dict, 
     df = df.drop_duplicates(subset=['quote'])
     if sample_size and len(df) > sample_size:
         oversample = int(sample_size * 1.2)
-        df = df.sample(n=min(oversample, len(df)), random_state=config.get('seed', 42))
+        df = df.sample(n=min(oversample, len(df)), random_state=None)
 
     df['prompt'] = "Generate a " + df['category'] + " quote:"
     
