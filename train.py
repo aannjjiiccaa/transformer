@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, random_split
 from torch.utils.tensorboard import SummaryWriter
+import gc
 
 # Other files stuff
 from dataset import QuoteDataset, load_data_quotes
@@ -236,6 +237,8 @@ if __name__ == "__main__":
     warnings.filterwarnings('ignore')
     config = get_config()
     train_model(config)
+    torch.cuda.empty_cache()
+    gc.collect()
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     training_dataloader, validation_dataloader, test_dataloader, src_tokenizer, tgt_tokenizer = get_dataset(config)
     model = get_model(config, src_tokenizer.get_vocab_size(), tgt_tokenizer.get_vocab_size()).to(device)
