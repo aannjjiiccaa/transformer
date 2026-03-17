@@ -22,7 +22,7 @@ def get_config():
     """
     return {
         "batch_size": 128,
-        "num_epochs": 20,
+        "num_epochs": 100,
         "learning_rate": 1 * 10**-4,
         "context_size": 96,
         "model_dimension": 256,

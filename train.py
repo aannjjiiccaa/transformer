@@ -187,6 +187,8 @@ def train_model(config):
 
     loss_function = nn.CrossEntropyLoss(ignore_index=target_tokenizer.token_to_id('[PAD]'), label_smoothing=0.15).to(device)
     best_loss = float('inf')
+    patience = 5
+    trigger_times = 0
 
     for epoch in range(initial_epoch, config['num_epochs']):
         model.train()
@@ -232,6 +234,14 @@ def train_model(config):
         if val_loss < best_loss:
             best_loss = val_loss
             torch.save({'model_state_dict': model.state_dict(), 'val_loss': val_loss}, Path(config['model_folder'])/"best_model.pt")
+            trigger_times=0
+        else:
+            trigger_times += 1
+            print(f"Patience: {trigger_times}/{patience}")
+            
+        if trigger_times >= patience:
+            print("Early stopping. Overfitting!")
+            break
 
 if __name__ == "__main__":
     warnings.filterwarnings('ignore')
