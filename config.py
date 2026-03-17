@@ -34,7 +34,7 @@ def get_config():
         "tokenizer_file": "tokenizer_{0}.json",
         "experiment_name": "runs/quotes",
         "seed": 561,
-        "sample_size":100000
+        "sample_size":200000
     }
 
 def get_weights_file_path(
