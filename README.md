@@ -1,6 +1,6 @@
 # Transformer Quote Generator
 
-A custom **Transformer Encoder-Decoder** implementation in PyTorch designed to generate quotes based on specific styles or categories. By providing a "style" (e.g., *love, life, inspirational*) to the encoder, the model learns to generate contextually relevant and stylistically consistent quotes.
+A custom **Transformer Encoder-Decoder** implementation in PyTorch designed to generate quotes based on specific styles or categories. By providing a style (e.g., *love, life, inspirational*) to the encoder, the model learns to generate contextually relevant and stylistically consistent quotes.
 
 ## Dataset
 The model is trained on the [Quotes-500k Dataset from Kaggle](https://www.kaggle.com/datasets/manann/quotes-500k).
@@ -10,7 +10,7 @@ The model is trained on the [Quotes-500k Dataset from Kaggle](https://www.kaggle
   * `author`
   * `category` - multiple tags 
 * **Data Processing:**
-    * Trained on a randomized subset of **~100,000 entries**.
+    * Trained on a randomized subset of **~200,000 entries**.
     * **Targeted Styles:** The model uses the first tag from the `category` column as the source input.
     * **Quality Control:** Extremely long or short quotes were excluded during preprocessing to maintain structural consistency and prevent padding-related noise.
 
@@ -65,6 +65,42 @@ Initially, a larger model ($d_{model}=512$) showed significant overfitting after
   
   !python train.py
   ```
+
+### Inference Local Setup
+After training the model on Kaggle, follow these steps to run it locally:
+ 1. Download Model Assets
+
+    Move the following files from your Kaggle output to your local project directory:
+    - `best_model.pt` -> place in weights/
+    - `tokenizer_src.json` and `tokenizer_tgt.json` -> place in the root folder.
+ 2. Enviroment Setup
+    
+    Create a virtual environment to keep your dependencies isolated:
+    - Create venv
+    ```bash
+    python -m venv venv
+    ```
+    
+    - Activate venv
+       - Windows: `.\venv\Scripts\activate`
+       - Linux/macOS: `source venv/bin/activate`
+ 3. Install Requirements
+
+    Install the necessary libraries for inference:
+    ```bash
+    pip install torch tokenizers
+    ```
+ 5. Run the Generator
+    
+    Start the interactive inference session:
+    ```bash
+    python inference.py
+    ```
+
+#### Tips:
+- Categories: The model was trained on specific tags (e.g. love, life, inspirational). Try those first for the best results.
+- Exit: Simply type exit to close the program.
+- Performance: The script is optimized to load the weights once, so subsequent generations are near-instant.
 
 ## Project Structure
 - model.py: Core Transformer architecture (Attention, MultiHead, Encoder/Decoder).
