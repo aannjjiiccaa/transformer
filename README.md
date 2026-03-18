@@ -76,3 +76,5 @@ Initially, a larger model ($d_{model}=512$) showed significant overfitting after
 - config.py: Centralized hyperparameters and path management.
 
 - test.py: Inference engine with Top-K sampling logic.
+
+- inference.py: An interactive CLI application that allows users to generate quotes by category.
